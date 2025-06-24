@@ -14,7 +14,7 @@ st.sidebar.header("🔧 Configuration")
 api_user = st.sidebar.text_input("Identifiant API (login)", value="youradress")
 api_password = st.sidebar.text_input("Mot de passe API", value="yourpassword", type="password")
 domain = st.sidebar.selectbox("Domaine Google", [
-    "google.fr", "google.be", "google.ca", "google.com", "google.de", "google.co.uk", "google.it", 
+    "google.com", "google.fr", "google.be", "google.ca", "google.com", "google.de", "google.co.uk", "google.it", 
     "google.es", "google.nl", "google.com.au", "google.com.br", "google.co.in", "google.co.jp", 
     "google.co.kr", "google.se", "google.no", "google.dk", "google.fi", "google.co.za", "google.ch",
     "google.co.il", "google.com.mx", "google.pl", "google.at", "google.ru", "google.com.sa", "google.ae",
