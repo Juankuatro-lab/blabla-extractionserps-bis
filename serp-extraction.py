@@ -1,9 +1,9 @@
 import streamlit as st
-import aiohttp
-import asyncio
+import requests
 import pandas as pd
 import re
-import uuid
+import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 st.set_page_config(page_title="Extraction SERP DataForSEO", layout="wide")
 st.title("🔍 Extraction SERP - DataForSEO")
@@ -31,7 +31,7 @@ language = st.sidebar.selectbox("Langue", [
     "Japanese", "Korean", "Swedish", "Norwegian", "Danish", "Finnish", "Chinese", "Arabic"
 ], index=0)
 depth = st.sidebar.slider("Nombre de résultats à extraire", 10, 100, 100, step=10)
-batch_size = st.sidebar.slider("Taille des batchs", 1, 100, 100)
+max_workers = st.sidebar.slider("Nombre de threads simultanés", 1, 10, 5)
 
 st.sidebar.markdown("---")
 
@@ -53,9 +53,7 @@ else:
 
 # --- Estimation du coût ---
 def estimate_cost(keywords, cost_per_task=0.00075):
-    # Calculer le nombre total de tâches
     total_tasks = len(keywords)
-    # Calculer le coût estimé
     estimated_cost = total_tasks * cost_per_task
     return estimated_cost
 
@@ -64,108 +62,142 @@ if keywords:
     estimated_cost = estimate_cost(keywords)
     st.sidebar.write(f"Coût estimé : ${estimated_cost:.4f}")
 
-output_df = pd.DataFrame(columns=["keyword", "url", "domain", "position"])
-
 # --- Fonctions utilitaires ---
 def extract_domain(url):
     match = re.match(r"https?://([^/]+)/?", url)
     return match.group(1) if match else url
 
-def chunkify(lst, size):
-    return [lst[i:i + size] for i in range(0, len(lst), size)]
-
-async def fetch(session, url, method="GET", payload=None):
-    auth = aiohttp.BasicAuth(api_user, api_password)
+def process_keyword(keyword):
+    """Traite un seul mot-clé"""
+    payload = [{
+        "language_name": language,
+        "location_name": location,
+        "keyword": keyword,
+        "depth": depth,
+        "se_domain": domain,
+    }]
+    
+    url = "https://api.dataforseo.com/v3/serp/google/organic/live/advanced"
     headers = {"Content-Type": "application/json"}
-    async with session.request(method, url, json=payload, auth=auth, headers=headers) as response:
-        if response.status != 200:
-            text = await response.text()
-            raise Exception(f"Erreur API: {response.status} - {text}")
-        return await response.json()
-
-async def process_batch(session, batch_keywords):
-    payload = [
-        {
-            "language_name": language,
-            "location_name": location,
-            "keyword": kw,
-            "depth": depth,
-            "se_domain": domain,
-        }
-        for kw in batch_keywords
-    ]
-
-    post_url = "https://api.dataforseo.com/v3/serp/google/organic/live/advanced"
-    result = await fetch(session, post_url, method="POST", payload=payload)
-    batch_results = []
-
-    for task in result.get("tasks", []):
-        keyword = task.get("data", {}).get("keyword", "")
-        if not task.get("result"):
-            batch_results.append({
+    auth = (api_user, api_password)
+    
+    try:
+        response = requests.post(url, json=payload, auth=auth, headers=headers, timeout=30)
+        
+        if response.status_code != 200:
+            return [{
                 "keyword": keyword,
                 "url": None,
                 "domain": None,
-                "position": None
-            })
-            continue
-
-        items = task["result"][0].get("items", [])
-        for item in items:
-            if item.get("type") == "organic":
-                url = item.get("url", "")
-                domain_name = extract_domain(url)
-                position = item.get("rank_group")
-                batch_results.append({
+                "position": None,
+                "error": f"API Error: {response.status_code}"
+            }]
+        
+        result = response.json()
+        keyword_results = []
+        
+        for task in result.get("tasks", []):
+            if not task.get("result"):
+                keyword_results.append({
                     "keyword": keyword,
-                    "url": url,
-                    "domain": domain_name,
-                    "position": position
+                    "url": None,
+                    "domain": None,
+                    "position": None,
+                    "error": "No results"
                 })
-    return batch_results
-
-async def run_extraction_parallel(all_keywords):
-    tasks = []  # Liste des tâches asynchrones
-    progress_bar = st.progress(0)
-    all_results = []
-
-    async with aiohttp.ClientSession() as session:
-        for i, keyword in enumerate(all_keywords):
-            task = asyncio.create_task(process_batch(session, [keyword]))  # Crée une tâche asynchrone pour chaque mot-clé
-            tasks.append(task)
+                continue
             
-            if len(tasks) >= batch_size:  # Paralléliser les requêtes par lot
-                results = await asyncio.gather(*tasks)  # Attendre que tous les batchs se terminent
-                for result in results:
-                    all_results.extend(result)  # Ajouter les résultats au tableau final
-                tasks.clear()  # Réinitialiser la liste de tâches pour le prochain lot
-                
-            progress_bar.progress((i + 1) / len(all_keywords))  # Mettre à jour la barre de progression
-            await asyncio.sleep(0.1)  # Moins de pause pour rendre l'extraction plus rapide
+            items = task["result"][0].get("items", [])
+            for item in items:
+                if item.get("type") == "organic":
+                    url_result = item.get("url", "")
+                    domain_name = extract_domain(url_result)
+                    position = item.get("rank_group")
+                    keyword_results.append({
+                        "keyword": keyword,
+                        "url": url_result,
+                        "domain": domain_name,
+                        "position": position,
+                        "error": None
+                    })
+        
+        return keyword_results
+        
+    except Exception as e:
+        return [{
+            "keyword": keyword,
+            "url": None,
+            "domain": None,
+            "position": None,
+            "error": str(e)
+        }]
 
-        # Récupérer les résultats restants (pour les mots-clés restants dans le dernier lot)
-        if tasks:
-            results = await asyncio.gather(*tasks)
-            for result in results:
-                all_results.extend(result)
-
+def run_extraction_parallel(keywords_list, max_workers=5):
+    """Exécute l'extraction en parallèle avec ThreadPoolExecutor"""
+    all_results = []
+    progress_bar = st.progress(0)
+    status_text = st.empty()
+    
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        # Soumettre toutes les tâches
+        future_to_keyword = {executor.submit(process_keyword, kw): kw for kw in keywords_list}
+        
+        completed = 0
+        for future in as_completed(future_to_keyword):
+            keyword = future_to_keyword[future]
+            try:
+                results = future.result()
+                all_results.extend(results)
+            except Exception as e:
+                st.error(f"Erreur pour le mot-clé '{keyword}': {e}")
+                all_results.append({
+                    "keyword": keyword,
+                    "url": None,
+                    "domain": None,
+                    "position": None,
+                    "error": str(e)
+                })
+            
+            completed += 1
+            progress = completed / len(keywords_list)
+            progress_bar.progress(progress)
+            status_text.text(f"Traité: {completed}/{len(keywords_list)} mots-clés")
+            
+            # Petite pause pour éviter de surcharger l'API
+            time.sleep(0.1)
+    
+    status_text.empty()
     return all_results
 
+# --- Interface principale ---
 if st.button("🚀 Lancer l'extraction") and keywords:
-    if not api_user:
+    if not api_user or api_user == "youradress":
         st.warning("Veuillez renseigner vos identifiants API.")
     else:
         st.info(f"Extraction en cours pour {len(keywords)} mot(s)-clé(s)...")
-        results = asyncio.run(run_extraction_parallel(keywords))
+        
+        results = run_extraction_parallel(keywords, max_workers)
         output_df = pd.DataFrame(results)
-        st.success(f"Extraction terminée. {len(output_df)} résultats trouvés.")
-        st.dataframe(output_df)
-
-        # Export CSV
-        csv = output_df.to_csv(index=False).encode('utf-8')
-        st.download_button(
-            label="📂 Télécharger les résultats en CSV",
-            data=csv,
-            file_name='serp_results.csv',
-            mime='text/csv'
-        )
+        
+        # Filtrer les erreurs pour l'affichage principal
+        success_df = output_df[output_df['error'].isna()].drop('error', axis=1)
+        error_df = output_df[output_df['error'].notna()]
+        
+        st.success(f"Extraction terminée. {len(success_df)} résultats trouvés.")
+        
+        if len(error_df) > 0:
+            st.warning(f"{len(error_df)} erreurs rencontrées.")
+            with st.expander("Voir les erreurs"):
+                st.dataframe(error_df[['keyword', 'error']])
+        
+        if len(success_df) > 0:
+            st.dataframe(success_df)
+            
+            # Export CSV
+            csv = success_df.to_csv(index=False).encode('utf-8')
+            st.download_button(
+                label="📂 Télécharger les résultats en CSV",
+                data=csv,
+                file_name='serp_results.csv',
+                mime='text/csv'
+            )
