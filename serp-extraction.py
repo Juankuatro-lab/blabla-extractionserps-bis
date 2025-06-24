@@ -11,7 +11,7 @@ st.title("🔍 Extraction SERP - DataForSEO")
 # --- Sidebar config ---
 st.sidebar.header("🔧 Configuration")
 
-api_user = st.sidebar.text_input("Identifiant API (login)", value="ilan.lellouche@hetic.net")
+api_user = st.sidebar.text_input("Identifiant API (login)", value="youradress")
 api_password = st.sidebar.text_input("Mot de passe API", value="c66104772aea8703", type="password")
 domain = st.sidebar.selectbox("Domaine Google", [
     "google.fr", "google.be", "google.ca", "google.com", "google.de", "google.co.uk", "google.it", 
