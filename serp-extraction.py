@@ -30,7 +30,8 @@ language = st.sidebar.selectbox("Langue", [
     "French", "English", "German", "Spanish", "Italian", "Dutch", "Portuguese", "Russian", "Turkish", 
     "Japanese", "Korean", "Swedish", "Norwegian", "Danish", "Finnish", "Chinese", "Arabic"
 ], index=0)
-depth = st.sidebar.slider("Nombre de résultats à extraire", 10, 100, 100, step=10)
+depth = st.sidebar.slider("Nombre de résultats à extraire", 10, 200, 100, step=10)
+st.sidebar.info("⚠️ Limite max : 200 résultats (API Live)")
 max_workers = st.sidebar.slider("Nombre de threads simultanés", 1, 10, 5, help="Nombre de requêtes API lancées en parallèle. "
          "Valeur recommandée : 3-5 pour éviter le rate-limiting.")
 
