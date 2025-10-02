@@ -51,16 +51,34 @@ else:
         else:
             st.error("Le fichier CSV doit contenir une colonne 'keyword'.")
 
-# --- Estimation du coût ---
-def estimate_cost(keywords, cost_per_task=0.00075):
-    total_tasks = len(keywords)
-    estimated_cost = total_tasks * cost_per_task
-    return estimated_cost
+depth = st.sidebar.slider("Nombre de résultats à extraire", 10, 200, 100, step=10)
+st.sidebar.info("⚠️ Limite max : 200 résultats (API Live)")
+
+# --- Estimation du coût MISE À JOUR ---
+def estimate_cost(depth, num_keywords, priority="normal"):
+    base_price = 0.0006  # Normal priority, 1ère page
+    num_pages = max(1, depth // 10)
+    
+    if num_pages == 1:
+        cost_per_keyword = base_price
+    else:
+        cost_per_keyword = base_price + (num_pages - 1) * (0.75 * base_price)
+    
+    total_cost = cost_per_keyword * num_keywords
+    return total_cost, cost_per_keyword, num_pages
 
 # Afficher l'estimation du coût
 if keywords:
-    estimated_cost = estimate_cost(keywords)
-    st.sidebar.write(f"Coût estimé : ${estimated_cost:.4f}")
+    estimated_cost, cost_per_kw, num_pages = estimate_cost(depth, len(keywords))
+    
+    st.sidebar.markdown("---")
+    st.sidebar.markdown("### 💰 Estimation des coûts")
+    st.sidebar.write(f"**Pages par mot-clé :** {num_pages}")
+    st.sidebar.write(f"**Coût/mot-clé :** ${cost_per_kw:.6f}")
+    st.sidebar.write(f"**Coût total :** ${estimated_cost:.4f}")
+    
+    if estimated_cost > 1:
+        st.sidebar.warning(f"⚠️ Coût > $1")
 
 # --- Fonctions utilitaires ---
 def extract_domain(url):
