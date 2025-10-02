@@ -53,10 +53,10 @@ else:
         else:
             st.error("Le fichier CSV doit contenir une colonne 'keyword'.")
 
-# --- Estimation du coût MISE À JOUR ---
+# --- Estimation du coût (02/10/2025) ---
 def estimate_cost(depth, num_keywords, priority="normal"):
     base_price = 0.0006  # Normal priority, 1ère page
-    num_pages = max(1, depth // 10)
+    num_pages = max(1, (depth + 9) // 10)  # Arrondi au supérieur
     
     if num_pages == 1:
         cost_per_keyword = base_price
